@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+env/
+venv/
+
+# PyInstaller build
+dist/
+build/
+*.spec
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs.txt
+registro_proceso.log
+proceso_facturas.log
+procesa_facturas_log.txt
+
+# Virtual env
+venv/
