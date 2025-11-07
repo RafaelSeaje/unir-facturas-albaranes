@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 import fitz  # PyMuPDF
 import logging
 from PyPDF2 import PdfReader, PdfWriter
@@ -109,8 +110,8 @@ def main():
 
     no_encontrados = []
 
-    # Determinamos si estamos ejecutando con consola o sin ella
-    use_tqdm = sys.stdout.isatty()
+    # Verificar si estamos en un entorno con consola o sin ella
+    use_tqdm = sys.stdout.isatty() if sys.stdout else False
 
     for factura in tqdm(facturas, desc="Procesando facturas", unit="factura", disable=not use_tqdm):
         ruta_factura = os.path.join(carpeta_facturas, factura)
