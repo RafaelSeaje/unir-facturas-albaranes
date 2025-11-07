@@ -1,4 +1,3 @@
-
 import os
 import re
 import fitz  # PyMuPDF
@@ -110,7 +109,10 @@ def main():
 
     no_encontrados = []
 
-    for factura in tqdm(facturas, desc="Procesando facturas", unit="factura"):
+    # Determinamos si estamos ejecutando con consola o sin ella
+    use_tqdm = sys.stdout.isatty()
+
+    for factura in tqdm(facturas, desc="Procesando facturas", unit="factura", disable=not use_tqdm):
         ruta_factura = os.path.join(carpeta_facturas, factura)
         nombre_cliente = extraer_nombre_cliente(ruta_factura)
         numeros_albaran = extraer_numeros_albaran(ruta_factura)
