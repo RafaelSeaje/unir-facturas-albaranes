@@ -1,0 +1,25 @@
+{
+    "name": "Unir Facturas con Albaranes - Codespace",
+    "image": "mcr.microsoft.com/devcontainers/python:3.11",
+    "features": {
+        "ghcr.io/devcontainers/features/common-utils:2": {},
+        "ghcr.io/devcontainers/features/python:1": {
+            "version": "3.11"
+        }
+    },
+    "postCreateCommand": "pip install -r requirements.txt",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "ms-toolsai.jupyter",
+                "eamodio.gitlens"
+            ]
+        }
+    },
+    "mounts": [
+        "source=${localWorkspaceFolder}/private_data,target=/workspace/private_data,type=bind"
+    ],
+    "remoteUser": "vscode"
+}
