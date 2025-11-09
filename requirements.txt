@@ -1,0 +1,7 @@
+PyMuPDF
+PyPDF2
+pytesseract
+pillow
+pdf2image
+tqdm
+tk
