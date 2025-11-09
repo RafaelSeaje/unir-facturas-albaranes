@@ -1,26 +1,58 @@
-# Python
+# ============================================================
+# 🧾 Proyecto: Unir Facturas con Albaranes
+# Configuración .gitignore adaptada para entorno privado seguro
+# ============================================================
+
+# --- Archivos Python ---
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+
+# --- Entornos virtuales ---
 env/
 venv/
+.venv/
 
-# PyInstaller build
+# --- Compilación PyInstaller ---
 dist/
 build/
 *.spec
 
-# OS
+# --- Archivos de sistema operativo ---
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Logs
+# --- Archivos de registro / logs ---
 *.log
 logs.txt
 registro_proceso.log
 proceso_facturas.log
 procesa_facturas_log.txt
 
-# Virtual env
-venv/
+# --- Archivos PDF (reales o de pruebas) ---
+# Evita subir documentos reales de clientes (facturas, albaranes, etc.)
+*.pdf
+!docs/*.pdf          # Permite PDFs de documentación o ejemplos públicos
+!tests/data/*.pdf    # Permite PDFs de prueba anonimizados
+
+# --- Carpetas de trabajo / temporales ---
+__temp__/
+tmp/
+temp/
+.cache/
+.output/
+.backup/
+
+# --- Configuración local / IDE ---
+.vscode/
+.idea/
+*.code-workspace
+
+# --- Otros ---
+# Archivos creados por herramientas de compilación o depuración
+*.bak
+*.old
+*.tmp
+*.orig
