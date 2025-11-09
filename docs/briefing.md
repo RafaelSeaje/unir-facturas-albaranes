@@ -1,177 +1,196 @@
-# Briefing: "Unir facturas con albaranes"
+# 🧾 Briefing técnico del proyecto “Unir Facturas con Albaranes”
 
-**Propósito:**
-Documento de referencia para subir al repositorio GitHub y continuar el desarrollo del ejecutable *Unir facturas con albaranes*. Contiene objetivos, requisitos funcionales y no funcionales, dependencias, flujo de trabajo esperado, estructura de repositorio, pasos para compilación y pruebas, y listas de verificación para los siguientes hitos.
+## 📌 Contexto general
 
----
+El proyecto **Unir Facturas con Albaranes** es una herramienta creada para automatizar el proceso administrativo de combinar facturas y sus correspondientes albaranes en archivos PDF únicos.  
+Está desarrollado en **Python**, y se compila como un ejecutable `.exe` para uso directo en entornos **Windows 10/11** (aunque puede adaptarse a macOS).
 
-## 1. Resumen ejecutivo
+El autor es **Rafael Seaje**, contable, que utiliza el programa como parte de su flujo de archivo digital documental, donde las facturas y albaranes provienen de un **ERP industrial** que genera los PDFs mediante **Microsoft Print to PDF**.
 
-Se dispone de un ejecutable Python que procesa lotes de facturas (PDF) provenientes de un ERP y, para cada factura, busca los albaranes asociados (PDF) y genera un PDF final que contiene la factura seguida de los albaranes correlacionados. El sistema ya cuenta con una versión funcional probada en una carpeta de pruebas; se necesita organizar el código en un repositorio, documentarlo y aplicar mejoras pendientes (búsqueda recursiva en quincenas, inclusión del nombre del cliente en el PDF final, listado final de albaranes faltantes, robustez frente a PDFs sin texto —OCR— y rendimiento).
-
----
-
-## 2. Objetivos del proyecto
-
-- Crear un repositorio mantenible en GitHub con la última versión funcional del script y binarios de prueba.
-- Asegurar que el ejecutable pueda instalarse y ejecutarse desde la carpeta definitiva: `C:\Scripts\Unir facturas con albaranes`.
-- Implementar y verificar: búsqueda recursiva de albaranes en la carpeta de año + subcarpetas (quincenas), inclusión del nombre del cliente en el nombre del PDF final, listado consolidado de albaranes faltantes, y evitar bloqueos/atascos (timeouts razonables en operaciones pesadas de OCR).
-- Proveer documentación clara para desarrollo futuro y para uso por parte del usuario administrativo.
+El propósito es **ahorrar tiempo y evitar errores manuales** al archivar, firmar y clasificar documentación contable y administrativa.
 
 ---
 
-## 3. Alcance y requisitos
+## 🧱 Funcionalidad actual (versión estable)
 
-### 3.1 Requisitos funcionales
+El ejecutable actual realiza tres fases principales:
 
-1. El script/exe debe pedir tres carpetas al usuario (vía diálogo):
-   - Carpeta de facturas a procesar (ej. `...\Facturas emitidas\2025\2025-10-2Q`).
-   - Carpeta base de albaranes (ej. `...\Albaranes emitidos\2025`). Debe buscar en esa carpeta y en todas sus subcarpetas.
-   - Carpeta de destino para los PDFs combinados (ej. `C:\Firma digital`).
+### 1️⃣ Renombrado de albaranes
+- Detecta el **número de albarán** en el contenido de cada PDF, con expresiones regulares del tipo:
+  ```
+  Albarán Num. A25 487 de 07/04/2025
+  ```
+- Si el nombre del archivo aún no contiene su número, lo renombra con el patrón:
+  ```
+  Albarán nº ZZZZ.pdf
+  ```
 
-2. Para cada factura:
-   - Extraer los números de albarán listados en su texto (formato aproximado: `Albarán Num. A25  487  de 07/04/2025`).
-   - Para cada número detectado, buscar el PDF de albarán correspondiente **recursivamente** en la carpeta de albaranes.
-   - Si no se encuentra por nombre, opcionalmente buscar en el contenido del PDF (texto nativo o por OCR) —esto será configurable.
-   - Generar un PDF combinado con la factura y los albaranes encontrados, y guardarlo en la carpeta de destino, manteniendo el nombre base de la factura y completando el nombre del cliente (extraído del propio PDF de la factura) si procede.
+### 2️⃣ Renombrado de facturas
+- Las facturas ya llegan parcialmente renombradas con el formato:
+  ```
+  AAAA-MM-DD FE#XXXX.pdf
+  ```
+- El script lee el contenido del PDF para extraer el **nombre del cliente** (ubicado en la primera línea en mayúsculas dentro de un bloque rectangular en la parte superior derecha de la página).
+- Limpia el nombre (elimina puntos, caracteres inválidos, y siglas como S.L. o S.A.).
+- Renombra la factura en el formato final:
+  ```
+  AAAA-MM-DD FE#XXXX Cliente.pdf
+  ```
 
-3. Al finalizar, generar en el log un resumen de los albaranes **no encontrados** (lista consolidada y única).
+### 3️⃣ Unión de facturas y albaranes
+- Lee cada factura y localiza los números de albarán mencionados en su contenido.
+- Busca esos albaranes en la carpeta designada (y subcarpetas).
+- Une los archivos PDF correspondientes en el orden en que aparecen dentro del texto de la factura.
+- Guarda el resultado en la carpeta de destino con el mismo nombre de la factura.
 
-4. El programa debe continuar si encuentra errores con archivos individuales; no debe abortar el lote completo por un fallo puntual.
-
-### 3.2 Requisitos no funcionales
-
-- Interfaz de usuario: diálogos `tkinter` para selección de carpetas y mensajes finales. El exe debe poder ejecutarse por doble clic.
-- Logging: `logs.txt` (o `procesa_facturas_log.txt`) en la carpeta del ejecutable; sobrescribir cada ejecución.
-- Rendimiento: minimizar OCR (solo aplicar cuando la página/factura no contiene texto seleccionable); búsqueda por nombre antes de búsqueda por contenido; timeout configurable por albarán si se requiere.
-- Robustez: manejo de excepciones por archivo, limpieza de recursos, y no bloques de GUI.
+### 🧩 Detalles adicionales
+- Se muestran mensajes de progreso (barra `tqdm`) o interfaz sin consola.
+- Se genera un **log** con los resultados del proceso, avisando de:
+  - Facturas procesadas correctamente.
+  - Albaranes no encontrados.
+  - Duplicados detectados.
+- Los errores no interrumpen el proceso: las facturas sin albaranes válidos se saltan y se registran en el log.
 
 ---
 
-## 4. Dependencias (versión mínima recomendada)
+## 🗂️ Estructura de carpetas típica
 
-- Python 3.10+ (preferible 3.11) o entorno virtual equivalentes.
-- PyMuPDF (`fitz`) — lectura rápida de PDF y renderizado de páginas a imagen.
-- PyPDF2 — manipulación (unión) de PDFs.
-- pytesseract — wrapper de Tesseract OCR (requiere instalación de Tesseract en Windows, típicamente en `C:\Program Files\Tesseract-OCR\tesseract.exe`).
-- pillow — para trabajar con imágenes.
-- pdf2image — opcional para conversiones (si se prefiere frente a PyMuPDF para OCR).
-- tqdm — solo para desarrollo / CMD; la versión distribuida con `--noconsole` evita usar `tqdm` en UI.
+```
+C:\
+ ├── Archivo Digital\
+ │    ├── Bandeja de entrada\
+ │    │    ├── Facturas emitidas\2025\2025-10-2Q\
+ │    │    └── Albaranes emitidos\2025\2025-10-2Q\
+ │    └── Firma digital\
+ ├── Scripts\
+ │    └── Unir facturas con albaranes\
+ │         ├── unir_facturas_albaranes.py
+ │         ├── dist\
+ │         │    ├── unir_facturas_albaranes.exe
+ │         │    └── logs\
+ │         └── build\
+ └── pruebas\
+      └── v.02\
+```
 
-> Nota: Las librerías se instalan globalmente con pip; no dependen de la ubicación del script. Al compilar con PyInstaller, las dependencias necesarias se empaquetan para el exe.
+El `.exe` se aloja normalmente en:  
+`C:\Scripts\Unir facturas con albaranes\dist\unir_facturas_albaranes.exe`
 
 ---
 
-## 5. Estructura de repositorio sugerida (GitHub)
+## 🧰 Tecnologías y dependencias
 
+| Librería | Uso principal | Comentario |
+|-----------|----------------|-------------|
+| **PyMuPDF (`fitz`)** | Lectura de PDFs, extracción de texto y páginas | Preciso para procesar PDFs generados digitalmente o escaneados. |
+| **PyPDF2** | Escritura, combinación y manipulación de PDFs | Permite unir las páginas de facturas y albaranes. |
+| **tqdm** | Barra de progreso y seguimiento visual | Desactivada en versiones sin consola. |
+| **tkinter** | Interfaz de selección de carpetas | Proporciona ventanas nativas de explorador de archivos. |
+| **pytesseract (opcional)** | OCR para reconocimiento de texto en PDFs escaneados | Solo se activa si el texto no puede extraerse directamente. |
+| **logging** | Registro de actividad y errores | Guarda el log de proceso (idealmente en `dist/logs`). |
+
+---
+
+## ⚙️ Estado actual del proyecto
+
+✅ **Funciona correctamente:**
+- Detecta y renombra albaranes.
+- Renombra facturas con cliente (aunque con errores puntuales).
+- Une PDFs en el orden correcto.
+- Genera archivos finales en la carpeta destino.
+
+⚠️ **Pendiente de mejora:**
+1. Reconocimiento del **nombre del cliente** (detecta la palabra “CLIENTE” o “FACTURA” en lugar del nombre real).
+2. Generación del archivo **log** en la ruta correcta (`dist/logs` o configurable).
+3. Validar que el orden de albaranes se mantenga incluso en facturas largas.
+4. Mejorar la claridad de las ventanas de selección de carpetas (mensajes antes de cada diálogo).
+5. Optimizar tiempos de procesamiento (evitar bloqueos si falta un albarán).
+
+---
+
+## 🔒 Mejoras planificadas (issues abiertos o a crear)
+
+### 1️⃣ Integrar firma digital con certificado FNMT
+- Usar librería **PyHanko** para firma PAdES visible o invisible.
+- Permitir configuración del certificado y contraseña.
+- Registrar en el log cada factura firmada correctamente.
+
+### 2️⃣ Procesar facturas no renombradas aún
+- Detectar número y fecha de factura directamente en el PDF.
+- Renombrar automáticamente según patrón estándar.
+- Permitir OCR de respaldo si no se detecta texto.
+
+### 3️⃣ Validaciones extra
+- Informar en el log si:
+  - Una factura no tiene albaranes asociados.
+  - Un albarán no fue vinculado a ninguna factura.
+
+---
+
+## 🧩 Organización del repositorio (GitHub)
+
+Repositorio:  
+🔗 [https://github.com/RafaelSeaje/unir-facturas-albaranes](https://github.com/RafaelSeaje/unir-facturas-albaranes)
+
+**Estructura recomendada:**
 ```
 unir-facturas-albaranes/
-├── README.md
-├── LICENSE
-├── .gitignore
 ├── src/
-│   └── procesa_facturas_y_albaranes.py     # script principal (modularizar después)
-├── dist/                                   # binarios de prueba (no necesario en VCS, opcional)
-├── tests/
-│   └── sample_files/                        # PDFs de prueba (pequeños, con datos sanitizados)
+│   └── unir_facturas_albaranes.py
 ├── docs/
-│   └── briefing.md                          # este documento
-└── scripts/
-    └── build_exe.bat                        # comando pyinstaller reproducible
+│   ├── README.md
+│   └── briefing.md
+├── dist/
+│   └── unir_facturas_albaranes.exe
+├── logs/
+├── tests/
+├── requirements.txt
+└── .gitignore
 ```
 
-**Consejo:** Evitar subir PDFs con datos reales. Incluir en tests solo PDFs anonimizados o de ejemplo.
+**Ramas:**
+- `main`: versión estable.
+- `dev`: rama de trabajo para nuevas versiones o pruebas.
 
 ---
 
-## 6. Propuesta de modularización del código (futuro)
+## 🧩 Etiquetas (labels) recomendadas para GitHub Issues
 
-- `io_utils.py` — funciones de selección de carpetas, creación de directorios y paths.
-- `pdf_utils.py` — funciones de extracción de texto, OCR fallback, renderizado de páginas.
-- `match_utils.py` — lógica de extracción de números y búsqueda/heurística de coincidencia de archivos.
-- `renamer.py` — renombrado de albaranes y facturas.
-- `merge.py` — operaciones de unión y escritura de PDFs.
-- `cli.py` / `gui.py` — entrada principal y GUI/diálogos.
-
-Modularizar facilita pruebas unitarias y la integración continua.
-
----
-
-## 7. Instrucciones para compilar el `.exe` (reproducible)
-
-1. Crear/usar un entorno virtual (opcional pero recomendado):
-   ```bash
-   python -m venv venv
-   venv\Scripts\activate    # Windows
-   pip install -U pip
-   pip install PyMuPDF PyPDF2 pytesseract pillow pdf2image tqdm
-   ```
-
-2. Probar el script en el intérprete (sanity check):
-   ```bash
-   python src\procesa_facturas_y_albaranes.py
-   ```
-
-3. Compilar con PyInstaller desde la carpeta raíz del repo:
-   ```bash
-   pyinstaller --onefile --name "Unir facturas con albaranes" src\procesa_facturas_y_albaranes.py
-   ```
-
-4. Resultado: `dist\Unir facturas con albaranes.exe` — copiar a `C:\Scripts\Unir facturas con albaranes`.
-
-> Para debugging inicial, compilar **sin** `--noconsole` y ejecutarlo desde CMD para ver mensajes en la consola.
+| Nombre | Color | Descripción |
+|--------|--------|-------------|
+| `enhancement` | 🟢 #28a745 | Mejora o nueva funcionalidad. |
+| `bug` | 🔴 #d73a4a | Error o fallo. |
+| `future-feature` | 🟣 #a371f7 | Mejora planificada. |
+| `documentation` | 🟡 #f9d67a | Cambios en documentación. |
+| `question` | 🔵 #3b88fd | Duda o debate previo a cambio. |
+| `refactor` | ⚫ #6e7781 | Reestructuración interna del código. |
+| `performance` | 🟠 #fc9d03 | Mejora de rendimiento. |
+| `duplicate` | ⚪ #cccccc | Issue duplicado. |
+| `good first issue` | 🩵 #7057ff | Ideal para nuevos colaboradores. |
+| `help wanted` | 🟢 #008672 | Se necesita ayuda o revisión. |
+| `invalid` | ⚫ #6e7781 | Issue no válido o irreproducible. |
+| `wontfix` | 🔴 #d73a4a | No se corregirá. |
 
 ---
 
-## 8. Pruebas y validación
+## 🧭 Próximos pasos recomendados
 
-- **Prueba funcional:** usar la copia de pruebas que funciona (proporcionada) y verificar que se obtienen los mismos resultados.
-- **Prueba de regresión:** modificar una factura para que falte su albarán y verificar que se registra en el log como faltante sin detener el proceso.
-- **Prueba OCR:** tomar PDFs que solo contengan imágenes y validar que se detectan los números de albarán.
-- **Prueba recursiva:** colocar albaranes en subcarpetas de distintas quincenas y verificar que se encuentran.
-
-Registrar resultados en `tests/RESULTS.md`.
-
----
-
-## 9. Issues abiertos (prioritarios)
-
-1. **Incluir nombre del cliente en el nombre del PDF final** — corregir extracción y uso cuando se crea el PDF destino.
-2. **Búsqueda recursiva por quincena** — asegurar que la búsqueda cubre carpeta del año y todas las quincenas.
-3. **Mejorar rendimiento en carpetas grandes** — optimizar la lista de archivos de albaranes (indexar nombres una vez por ejecución, evitar OCR global).
-4. **Timeout configurables** — para OCR en búsqueda por contenido (evitar bloqueos prolongados).
-5. **Agregar CSV/JSON resumen** con mapping factura → albaranes encontrados → faltantes (útil para auditoría).
+1. **Resolver la extracción del nombre del cliente** por coordenadas o OCR selectivo.  
+2. **Asegurar la creación del log** en ruta estable.  
+3. **Incorporar el control de duplicados de albaranes** en cada factura.  
+4. **Integrar firma digital FNMT** como nueva fase (posterior a la unión).  
+5. **Publicar una versión `v0.3`** en GitHub (rama `dev` → merge a `main`).
 
 ---
 
-## 10. Archivos entregados como referencia (estado actual)
+## 📚 Créditos y licencias
 
-- Última versión del script que ha funcionado en la carpeta de pruebas: `procesa_facturas_y_albaranes.py`.
-- Registro de la ejecución de prueba con 63 facturas: `procesa_facturas_log.txt`.
-
-*(Estos archivos han sido subidos por el usuario y contarán como punto de partida para el repo).*
-
----
-
-## 11. Siguientes pasos recomendados (prioridad)
-
-1. Subir el repo con la estructura propuesta y añadir este briefing como `docs/briefing.md`.
-2. Subir la versión funcional actual a `src/` y crear la rama `baseline` que represente el estado de trabajo que funciona.
-3. Crear una rama `feature/fix-client-name-and-recursive-search` para las correcciones 1 y 2 de la sección "Issues abiertos".
-4. Implementar tests pequeños con 3‑5 PDFs de ejemplo (anonimizados) que cubran: factura con 1 albarán, factura con varios albaranes, factura con albarán faltante, PDF sin texto.
-5. Revisar el proceso de creación del `.exe` en la carpeta definitiva y documentar el comando `pyinstaller` en `scripts/build_exe.bat`.
+**Autor:** Rafael Seaje  
+**Asistente técnico:** ChatGPT (OpenAI)  
+**Lenguaje:** Python 3.11+  
+**Licencia:** MIT (por confirmar o añadir al repositorio)
 
 ---
 
-## 12. Contacto y notas finales
-
-Cuando subas el repo, comparte el enlace y desde ahí puedo:
-
-- Crear PRs con los cambios propuestos (incluida la corrección para incluir el nombre del cliente y búsqueda recursiva).  
-- Preparar un pipeline simple de GitHub Actions que: ejecute tests (si están disponibles) y valide que el script corre (en entorno Windows-libre de GUI — se puede hacer test en Windows Server runner).  
-
-
----
-
-*Documento generado para facilitar la transferencia del desarrollo del ejecutable a un repositorio GitHub y para que otro desarrollador (o tú mismo) continúe el trabajo con todos los requisitos y contexto claros.*
-
+*Documento actualizado a noviembre de 2025.  
+Sirve como referencia técnica y operativa para la continuidad del desarrollo del proyecto.*
