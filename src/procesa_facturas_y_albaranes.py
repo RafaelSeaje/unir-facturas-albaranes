@@ -1,308 +1,209 @@
-#!/usr/bin/env python3
-"""
-procesa_facturas_y_albaranes.py
-Versión robusta (sin consola), OCR automático para facturas si hace falta,
-búsqueda de albaranes por nombre y por contenido (opcional), progress UI y log.
-"""
 
 import os
 import re
-import io
+import sys
+import fitz
 import logging
-import traceback
-import fitz                        # PyMuPDF
-import pytesseract
-from PIL import Image
-import PyPDF2
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import Tk, filedialog, messagebox
+from tqdm import tqdm
 
-# ----------------- CONFIGURACIÓN -----------------
-# Si tu instalación de Tesseract no está en PATH, ponla aquí:
-TESSERACT_CMD = r"C:\Program Files\Tesseract-OCR\tesseract.exe"  # <--- ajusta si hace falta
-# Si no quieres que el script busque dentro del contenido de los albaranes (más lento),
-# pon False. Si lo pones True, hará lectura y OCR de albaranes si no se encuentra por nombre.
-SEARCH_ALBARAN_BY_CONTENT_IF_NOT_FOUND = True
+# ==============================
+# CONFIGURACIÓN DEL LOG
+# ==============================
+LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "procesa_facturas_log.txt")
 
-# Log (sobrescribe cada ejecución)
-LOG_FILENAME = "procesa_facturas_log.txt"
 logging.basicConfig(
-    filename=LOG_FILENAME,
-    filemode="w",
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_FILE, mode="w", encoding="utf-8"),
+        logging.StreamHandler(sys.stdout) if sys.stdout else logging.NullHandler()
+    ]
 )
 
-# Configuración pytesseract
-try:
-    if TESSERACT_CMD:
-        pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
-except Exception as e:
-    logging.warning(f"No se pudo configurar Tesseract: {e}")
+# ==============================
+# FUNCIONES AUXILIARES
+# ==============================
 
-# Regex patrón basado en tu ejemplo "Albarán Num. A25  487  de 07/04/2025"
-RE_ALBARAN_PATTERN = re.compile(
-    r"[Aa]lbar[aá]n\s*(?:N[úu]m\.?|N[ºo]\.?)?\s*A?\d{0,3}\s*(\d{1,5})",
-    flags=re.IGNORECASE
-)
-
-# ----------------- UTILS -----------------
-def seleccionar_carpeta(titulo):
-    root = tk.Tk()
-    root.withdraw()
-    carpeta = filedialog.askdirectory(title=titulo)
-    root.destroy()
-    if not carpeta:
-        raise SystemExit("No se seleccionó carpeta.")
-    logging.info(f"Carpeta seleccionada: {carpeta}")
-    return carpeta
-
-def safe_make_dir(path):
-    os.makedirs(path, exist_ok=True)
-
-def extract_text_pymupdf(pdf_path):
-    """Extrae texto de todo el PDF con PyMuPDF; devuelve '' si no hay texto."""
+def extraer_texto_pagina(pdf_path):
     try:
-        doc = fitz.open(pdf_path)
-        all_text = []
-        for page in doc:
-            t = page.get_text("text") or ""
-            all_text.append(t)
-        doc.close()
-        return "\n".join(all_text).strip()
+        with fitz.open(pdf_path) as doc:
+            return doc[0].get_text("text")
     except Exception as e:
-        logging.error(f"PyMuPDF error leyendo {pdf_path}: {e}")
+        logging.warning(f"No se pudo extraer texto de {pdf_path}: {e}")
         return ""
 
-def ocr_pdf_to_text(pdf_path, dpi=200, lang='spa'):
-    """Aplica OCR (pytesseract) a cada página del PDF y devuelve el texto."""
-    text_parts = []
+def extraer_bloques(pdf_path):
     try:
-        doc = fitz.open(pdf_path)
-        for page in doc:
-            pix = page.get_pixmap(dpi=dpi)
-            img = Image.open(io.BytesIO(pix.tobytes("png")))
-            txt = pytesseract.image_to_string(img, lang=lang)
-            text_parts.append(txt)
-        doc.close()
+        with fitz.open(pdf_path) as doc:
+            page = doc[0]
+            return page.get_text("blocks")
     except Exception as e:
-        logging.error(f"OCR fallo en {pdf_path}: {e}")
-    return "\n".join(text_parts).strip()
+        logging.warning(f"No se pudieron extraer bloques de {pdf_path}: {e}")
+        return []
 
-def extract_text_with_ocr_fallback(pdf_path):
-    """Intenta PyMuPDF, y si no hay texto, aplica OCR (para facturas)."""
-    text = extract_text_pymupdf(pdf_path)
-    if text and text.strip():
-        return text
-    # fallback to OCR
-    logging.info(f"No se encontró texto nativo en {os.path.basename(pdf_path)} -> aplicando OCR")
-    return ocr_pdf_to_text(pdf_path)
+def limpiar_nombre_cliente_raw(texto):
+    texto = re.sub(r'[^A-ZÁÉÍÓÚÑÜ0-9\s\.-]', '', texto)
+    texto = re.sub(r'\s+', ' ', texto).strip()
+    return texto
 
-def extract_albaran_numbers_from_text(text):
-    """Extrae todos los números de albarán del texto según el patrón definido."""
-    nums = RE_ALBARAN_PATTERN.findall(text or "")
-    # normalizar y eliminar duplicados, devolver como strings sin ceros rellenos
-    nums_norm = []
-    for n in nums:
-        nstr = n.strip()
-        if nstr:
-            nums_norm.append(nstr.lstrip("0"))  # guardar sin ceros a izquierda para coincidencia flexible
-    return list(dict.fromkeys(nums_norm))  # mantener orden y eliminar duplicados
-
-def find_albaran_by_number_in_folder(folder, num):
-    """Busca un PDF en folder cuyo nombre contenga num (con o sin ceros delante)."""
-    # chequea varias variantes: exacto, con ceros a 4 dígitos, con Axx prefijo
-    candidates = []
-    num_int = None
+def extraer_nombre_cliente(pdf_path):
     try:
-        num_int = int(re.sub(r'\D', '', num))
-    except Exception:
-        num_int = None
+        blocks = extraer_bloques(pdf_path)
+        if not blocks:
+            return None
 
-    padded4 = f"{int(num):04d}" if num.isdigit() else None
+        with fitz.open(pdf_path) as doc:
+            w, h = doc[0].rect.width, doc[0].rect.height
 
-    for fname in os.listdir(folder):
-        if not fname.lower().endswith(".pdf"):
-            continue
-        name = fname.lower()
-        # quick checks
-        if num.lower() in name:
-            candidates.append((1, fname))
-            continue
-        if padded4 and padded4 in name:
-            candidates.append((2, fname))
-            continue
-        # try to strip non-digits and compare
-        digits_in_name = "".join(re.findall(r"\d+", fname))
-        if digits_in_name and num_int is not None and str(num_int) in digits_in_name:
-            candidates.append((3, fname))
-    # ordenar por prioridad (menor mejor)
-    candidates.sort(key=lambda x: x[0])
-    return [os.path.join(folder, c[1]) for c in candidates]
+        candidates = [b for b in blocks if b[0] >= w * 0.45 and b[1] <= h * 0.30]
+        candidates.sort(key=lambda b: (b[1], -b[0]))
 
-def find_albaran_by_content(folder, num):
-    """Busca dentro del contenido de PDFs de folder el número num (usa texto nativo y OCR si hace falta)."""
-    matches = []
-    for fname in os.listdir(folder):
-        if not fname.lower().endswith(".pdf"):
-            continue
-        path = os.path.join(folder, fname)
-        text = extract_text_pymupdf(path)
-        if text and re.search(rf"\b{re.escape(num)}\b", text):
-            matches.append(path)
-            continue
-        # fallback to OCR only if configured
-        if SEARCH_ALBARAN_BY_CONTENT_IF_NOT_FOUND:
-            ocrt = ocr_pdf_to_text(path)
-            if ocrt and re.search(rf"\b{re.escape(num)}\b", ocrt):
-                matches.append(path)
-    return matches
+        posibles_lineas = []
+        for (_, _, _, _, texto) in candidates:
+            for ln in texto.splitlines():
+                ln = ln.strip()
+                if ln:
+                    posibles_lineas.append(ln)
 
-def merge_pdfs(output_path, list_of_paths):
-    """Une PDFs en output_path; devuelve True si se escribió algo."""
+        mayus = [l for l in posibles_lineas if l.isupper()]
+        if len(mayus) >= 3:
+            cliente_line = mayus[2]
+        elif len(mayus) >= 1:
+            cliente_line = mayus[-1]
+        else:
+            cliente_line = posibles_lineas[-1] if posibles_lineas else None
+
+        if cliente_line:
+            cliente_limpio = limpiar_nombre_cliente_raw(cliente_line)
+            logging.info(f"Nombre de cliente detectado: {cliente_limpio}")
+            return cliente_limpio
+    except Exception as e:
+        logging.warning(f"Error extrayendo cliente de {pdf_path}: {e}")
+    return None
+
+def buscar_albaran_primero(num, carpeta_base, usados_por_factura=None):
+    if usados_por_factura is None:
+        usados_por_factura = set()
+    coincidencias = []
+    for root, _, files in os.walk(carpeta_base):
+        for f in files:
+            if f.lower().endswith(".pdf") and re.search(rf"\b{re.escape(num)}\b", f):
+                coincidencias.append(os.path.join(root, f))
+    for c in coincidencias:
+        if c not in usados_por_factura:
+            return c
+    return None
+
+def unir_pdfs(pdf_principal, lista_pdf_albaranes, destino):
     try:
-        merger = PyPDF2.PdfMerger()
-        for p in list_of_paths:
-            merger.append(p)
-        merger.write(output_path)
-        merger.close()
+        doc = fitz.open()
+        for ruta in [pdf_principal] + lista_pdf_albaranes:
+            with fitz.open(ruta) as m:
+                doc.insert_pdf(m)
+        doc.save(destino)
+        doc.close()
         return True
     except Exception as e:
-        logging.error(f"Error al unir PDFs en {output_path}: {e}")
+        logging.error(f"Error uniendo PDFs: {e}")
         return False
 
-# ----------------- UI de progreso (simple, no consola) -----------------
-class ProgressWindow:
-    def __init__(self, total, title="Procesando"):
-        self.root = tk.Tk()
-        self.root.title(title)
-        self.root.resizable(False, False)
-        self.total = max(1, total)
-        self.var = tk.DoubleVar(value=0)
-        self.label = tk.Label(self.root, text=f"0 / {self.total}")
-        self.label.pack(padx=10, pady=(10,0))
-        self.pb = ttk.Progressbar(self.root, orient="horizontal", length=400, mode="determinate", maximum=self.total, variable=self.var)
-        self.pb.pack(padx=10, pady=(5,10))
-        # center window
-        self.root.update_idletasks()
-        w = self.root.winfo_width()
-        h = self.root.winfo_height()
-        x = (self.root.winfo_screenwidth() // 2) - (w // 2)
-        y = (self.root.winfo_screenheight() // 2) - (h // 2)
-        self.root.geometry(f"+{x}+{y}")
-        # don't block mainloop yet; we'll update manually
-    def update(self, value, message=None):
-        self.var.set(value)
-        self.label.config(text=f"{int(value)} / {self.total}" + (f" — {message}" if message else ""))
-        self.root.update_idletasks()
-    def close(self):
-        try:
-            self.root.destroy()
-        except Exception:
-            pass
+# ==============================
+# FUNCIÓN PRINCIPAL
+# ==============================
 
-# ----------------- PROCESO PRINCIPAL -----------------
 def main():
     logging.info("=== INICIO DEL PROCESO ===")
-    try:
-        carpeta_facturas = seleccionar_carpeta("Seleccione la carpeta con las FACTURAS a procesar")
-        carpeta_albaranes = seleccionar_carpeta("Seleccione la carpeta con los ALBARANES (renombrados)")
-        carpeta_destino = seleccionar_carpeta("Seleccione la carpeta DESTINO para las facturas completas")
-        safe_make_dir(carpeta_destino)
 
-        facturas = [f for f in os.listdir(carpeta_facturas) if f.lower().endswith(".pdf")]
-        logging.info(f"Facturas detectadas: {len(facturas)}")
+    Tk().withdraw()
+    messagebox.showinfo(
+        "Información general",
+        "A continuación seleccionará tres carpetas:\n"
+        "1️⃣ Facturas a procesar\n"
+        "2️⃣ Carpeta base de albaranes (incluye subcarpetas)\n"
+        "3️⃣ Carpeta destino para guardar las facturas completas."
+    )
 
-        if not facturas:
-            messagebox.showinfo("Sin facturas", "No se encontrarón archivos PDF en la carpeta de facturas.")
-            logging.info("No hay facturas para procesar. Saliendo.")
-            return
+    messagebox.showinfo("Facturas", "Seleccione la carpeta que contiene las facturas a procesar.")
+    carpeta_facturas = filedialog.askdirectory(title="Carpeta de facturas a procesar")
 
-        prog = ProgressWindow(total=len(facturas), title="Procesando facturas y albaranes")
-        processed = 0
-        i = 0
+    messagebox.showinfo("Albaranes", "Seleccione la carpeta base donde buscar los albaranes.")
+    carpeta_albaranes = filedialog.askdirectory(title="Carpeta base de albaranes")
 
-        for factura in facturas:
-            i += 1
-            try:
-                prog.update(i-1, f"Analizando {factura}")
-                ruta_factura = os.path.join(carpeta_facturas, factura)
+    messagebox.showinfo("Destino", "Seleccione la carpeta donde se guardarán las facturas completas.")
+    carpeta_destino = filedialog.askdirectory(title="Carpeta destino de facturas completas")
 
-                # Extraer texto: preferimos texto nativo; si no, OCR
-                text = extract_text_pymupdf(ruta_factura)
-                used_ocr = False
-                if not text.strip():
-                    text = ocr_pdf_to_text(ruta_factura)
-                    used_ocr = True
-                    logging.info(f"OCR aplicado a factura {factura}")
+    if not carpeta_facturas or not carpeta_albaranes or not carpeta_destino:
+        logging.error("No se seleccionaron todas las carpetas necesarias.")
+        messagebox.showerror("Error", "No se seleccionaron todas las carpetas necesarias.")
+        return
 
-                nums = extract_albaran_numbers_from_text(text)
-                logging.info(f"Factura {factura}: números de albarán detectados: {nums} (OCR usado: {used_ocr})")
+    archivos_facturas = [f for f in os.listdir(carpeta_facturas) if f.lower().endswith(".pdf")]
+    logging.info(f"Facturas detectadas: {len(archivos_facturas)}")
 
-                if not nums:
-                    logging.info(f"No se detectaron números de albarán en {factura}")
-                    prog.update(i, f"Sin albaranes: {factura}")
-                    continue
+    albaranes_faltantes, facturas_sin_unir, usados_global = [], [], set()
+    disable_tqdm = not sys.stdout or not sys.stdout.isatty()
 
-                # localizar archivos de albaranes
-                albaranes_paths = []
-                for num in nums:
-                    found_by_name = find_albaran_by_number_in_folder(carpeta_albaranes, num)
-                    if found_by_name:
-                        albaranes_paths.extend(found_by_name)
-                        logging.info(f"Albarán(s) por nombre para {num}: {[os.path.basename(p) for p in found_by_name]}")
-                        continue
-                    # si no encontrado por nombre, buscar por contenido (opcional)
-                    if SEARCH_ALBARAN_BY_CONTENT_IF_NOT_FOUND:
-                        found_by_content = find_albaran_by_content(carpeta_albaranes, num)
-                        if found_by_content:
-                            albaranes_paths.extend(found_by_content)
-                            logging.info(f"Albarán(s) por contenido para {num}: {[os.path.basename(p) for p in found_by_content]}")
-                        else:
-                            logging.warning(f"No se encontró albarán {num} en carpeta {carpeta_albaranes}")
+    for factura in tqdm(archivos_facturas, desc="Procesando facturas", ncols=80, disable=disable_tqdm):
+        ruta_factura = os.path.join(carpeta_facturas, factura)
+        texto = extraer_texto_pagina(ruta_factura)
+        nums = re.findall(r"\b\d{3,6}\b", texto)
+        nums = list(dict.fromkeys(nums))
 
-                # quitar duplicados y mantener orden
-                seen = set()
-                albaranes_paths_unique = []
-                for p in albaranes_paths:
-                    if p not in seen:
-                        seen.add(p)
-                        albaranes_paths_unique.append(p)
+        cliente = extraer_nombre_cliente(ruta_factura) or "CLIENTE"
+        lista_a_unir, usados_factura = [], set()
 
-                if not albaranes_paths_unique:
-                    logging.warning(f"No se encontraron albaranes para factura {factura}")
-                    prog.update(i, f"Albaranes no encontrados: {factura}")
-                    continue
+        logging.info(f"\nFactura {factura}: números detectados {nums}")
 
-                # Unir factura + albaranes
-                salida = os.path.join(carpeta_destino, factura)
-                sources = [ruta_factura] + albaranes_paths_unique
-                ok = merge_ok = merge_pdfs(salida, sources)
-                if ok:
-                    processed += 1
-                    logging.info(f"Factura completa generada: {os.path.basename(salida)} con {len(albaranes_paths_unique)} albaranes")
-                    prog.update(i, f"Generado: {os.path.basename(salida)}")
-                else:
-                    logging.error(f"Fallo al generar {os.path.basename(salida)}")
-                    prog.update(i, f"Error generando: {factura}")
+        for num in nums:
+            ruta_alb = buscar_albaran_primero(num, carpeta_albaranes, usados_factura)
+            if ruta_alb:
+                lista_a_unir.append(ruta_alb)
+                usados_factura.add(ruta_alb)
+                usados_global.add(ruta_alb)
+                logging.info(f"  ✓ Albarán {num} → {os.path.basename(ruta_alb)}")
+            else:
+                albaranes_faltantes.append((factura, num))
+                logging.warning(f"  ✗ No se encontró albarán {num} para {factura}")
 
-            except Exception as e:
-                logging.error(f"Error procesando factura {factura}: {traceback.format_exc()}")
-                prog.update(i, f"Error: {factura}")
-            # small UI refresh
-        prog.close()
+        if lista_a_unir:
+            salida = os.path.join(carpeta_destino, f"{os.path.splitext(factura)[0]}_{cliente}.pdf")
+            if unir_pdfs(ruta_factura, lista_a_unir, salida):
+                logging.info(f"Factura completa generada: {os.path.basename(salida)} con {len(lista_a_unir)} albaranes")
+        else:
+            facturas_sin_unir.append(factura)
+            logging.warning(f"No se unieron albaranes para {factura}")
 
-        logging.info(f"=== FIN DEL PROCESO. Facturas procesadas: {processed} de {len(facturas)} ===")
-        messagebox.showinfo("Proceso finalizado", f"Facturas procesadas: {processed} de {len(facturas)}\nRevisa {LOG_FILENAME} para detalles.")
+    # RESUMEN FINAL
+    logging.info("\n=== FIN DEL PROCESO ===")
+    logging.info(f"Facturas procesadas: {len(archivos_facturas)}")
 
-    except SystemExit as se:
-        logging.info(f"Proceso cancelado por usuario: {se}")
-    except Exception as e:
-        logging.error("Error crítico: " + traceback.format_exc())
-        try:
-            messagebox.showerror("Error", f"Ocurrió un error: {e}\nVer log {LOG_FILENAME}")
-        except Exception:
-            pass
+    if albaranes_faltantes:
+        logging.info("Albaranes faltantes detectados:")
+        for f, n in albaranes_faltantes:
+            logging.info(f"  - Factura {f}: albarán {n}")
+
+    if facturas_sin_unir:
+        logging.info("Facturas sin albaranes:")
+        for f in facturas_sin_unir:
+            logging.info(f"  - {f}")
+
+    todos_albaranes = []
+    for root, _, files in os.walk(carpeta_albaranes):
+        for f in files:
+            if f.lower().endswith(".pdf"):
+                todos_albaranes.append(os.path.join(root, f))
+
+    no_usados = [a for a in todos_albaranes if a not in usados_global]
+    if no_usados:
+        logging.info("Albaranes no utilizados:")
+        for a in no_usados:
+            logging.info(f"  - {os.path.basename(a)}")
+
+    logging.info(f"Log completo: {LOG_FILE}")
+    messagebox.showinfo("Finalizado", "Proceso completado.\nRevise el log para más detalles.")
 
 if __name__ == "__main__":
     main()
