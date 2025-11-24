@@ -1,148 +1,171 @@
-# 🧾 Unir  Facturas y Albaranes
+# Automatización de Facturas y Albaranes – ERP → PDF
 
-Un programa sencillo para uso administrativo que permite **combinar automáticamente facturas  PDF con sus albaranes correspondientes**, generando un único archivo final por cada factura.  
-Ideal para contables, administrativos o responsables de archivo digital que trabajan con facturas y albaranes en formato PDF.
+Este proyecto proporciona un conjunto de herramientas diseñadas para automatizar el tratamiento documental de facturas y albaranes generados desde un ERP.  
+Los módulos permiten:
 
----
+1. Separar un PDF único que contiene varias facturas en PDFs individuales.  
+2. Renombrar automáticamente los albaranes según su número y fecha.  
+3. Unir cada factura con todos los albaranes que le corresponden (en desarrollo).  
+4. Estructurar carpetas de trabajo de forma estándar y asistida.
 
-## 🎯 ¿Para qué sirve?
-
-Cuando una factura incluye uno o varios albaranes (documentos de entrega) que están en PDF por separado, este programa:
-
-- Identifica el **número de factura** y el **nombre del cliente** que aparecen en la factura.  
-- Extrae los números de los albaranes que figuran en la factura (por ejemplo: “Albarán Núm. A25  487 de 07/04/2025”).  
-- Busca automáticamente esos albaranes en una carpeta — y en **subcarpetas también** —.  
-- Une la factura + sus albaranes en un solo PDF con nombre claro (fecha, factura, cliente).  
-- Genera un registro de actividad (log) con las facturas procesadas, los albaranes encontrados o no encontrados, y los resultados finales.
-
-Esto permite tener un archivo único por factura, listo para archivar, firmar digitalmente o enviar al cliente.
+El proyecto está orientado a entornos administrativos, con enfoque práctico, sin requerir conocimientos técnicos avanzados.
 
 ---
 
-## 📂 Estructura del repositorio
+## Estado actual del proyecto
+
+### 🟢 Módulos completados
+- **separar_facturas.py**  
+  Divide un PDF con múltiples facturas en PDFs individuales, agrupando las páginas de cada factura y asignando nombres estandarizados.  
+  Usa OCR (Tesseract) para detectar número de factura y fecha en un recuadro fijo.
+
+- **procesar_albaranes.py**  
+  Renombra albaranes PDF según su número y fecha, siguiendo un patrón fijo basado en la lectura OCR de un recuadro estructurado.
+
+### 🟡 Módulos en desarrollo
+- **unir_facturas_albaranes.py**  
+  Unirá cada factura con sus albaranes correspondientes.  
+  El módulo está iniciado y contiene detección preliminar de números de factura y albaranes.  
+  Será actualizado para asumir que la identificación de factura (número y fecha) ya la aporta el módulo `separar_facturas.py`.
+
+### 🟡 Estructura del proyecto  
+Conjunto de subcarpetas y convenciones de nombres para automatizar totalmente el flujo de ERP → PDFs → Carpetas → Fusionado.
+
+---
+
+## Estructura del repositorio
 
 ```
-unir-facturas-albaranes/
-├── src/                                  # Código fuente (.py)
-│   └── unir_facturas_albaranes.py        # Script principal
-├── dist/                                 # Ejecutables generados (.exe) cuando el script es compilado
-├── logs/                                 # Carpetas de registros de ejecución
-├── README.md                             # Este archivo: información del proyecto
-└── LICENSE (opcional)                    # Licencia del proyecto
+/ (raíz)
+│
+├─ README.md               ← este documento
+├─ requirements.txt
+├─ USAGE.md                ← instrucciones ampliadas (opcional)
+│
+├─ src/
+│   ├─ separar_facturas.py
+│   ├─ procesar_albaranes.py
+│   └─ unir_facturas_albaranes.py
+│
+├─ logs/
+│   └─ (generado automáticamente)
+│
+└─ dist/                   ← aquí se guardan los .exe generados
 ```
 
 ---
 
-## ⚙️ Requisitos
+# Funcionamiento de cada módulo
 
-### 🔧 Software
+## 1. separarar_facturas.py
+**Objetivo:**  
+Dado un único PDF exportado desde el ERP con todas las facturas (una por página o varias páginas por factura), divide y genera un PDF por factura.
 
-- Windows 10  o 11  
-- Python 3.10 o superior (si usa el script `.py` directamente)  
-  - Para usar como ejecutable `.exe` no se necesita saber Python.  
-- (Opcional) PyInstaller, si desea generar su propio `.exe`.
+**Características:**
+- Detección del número de factura dentro del recuadro superior-izquierdo.
+- Correcciones internas del OCR para evitar errores típicos (0/O, 1/I/l, S/5, Z/2…)
+- Agrupación de páginas consecutivas que pertenecen a la misma factura.
+- Nombres de salida con formato:
+  ```
+  YYYY-MM-DD FE#NNNN SERIE.pdf
+  ```
+- GUI completa con selección de archivo origen, carpeta destino y barra de progreso.
 
-### 📦 Librerías utilizadas y por qué
+**Entrada:**  
+Un PDF único (ej.: `2025-10-2Q FACTURAS.pdf`)
 
-| Librería           | ¿Para qué se usa?                                                |
-|---------------------|-----------------------------------------------------------------|
-| `PyMuPDF` (alias `fitz`) | Permite abrir PDFs, extraer texto y bloques de texto (posiciones) para identificar nombres y albaranes. |
-| `PyPDF2`             | Permite combinar varios PDFs (factura + albaranes) en un único archivo. |
-| `tkinter`           | Proporciona ventanas gráficas para que el usuario seleccione las carpetas sin usar consola. |
-| `tqdm`              | Proporciona barra de progreso cuando se ejecuta en consola (aunque en el `.exe` gráfico se suprime). |
-| `logging`           | Registra en un archivo “log” todo el proceso: qué facturas, qué albaranes, qué errores. |
-
----
-
-## 🚀 Instalación del script
-
-Si desea usar el script directamente (.py):
-
-1. Instale Python 3.10+ si aún no lo tiene.  
-2. Descargue o clone este repositorio.  
-3. Abra una terminal en la carpeta `src/`.  
-4. Instale las dependencias:
-   ```bash
-   pip install PyMuPDF PyPDF2 tqdm
-   ```
-5. Ejecute:
-   ```bash
-   python unir_facturas_albaranes.py
-   ```
-
-### 🖥️ Si desea usarlo como ejecutable (.exe)
-
-1. Instale PyInstaller:
-   ```bash
-   pip install pyinstaller
-   ```
-2. En la carpeta `src/`, ejecute:
-   ```bash
-   pyinstaller --onefile --noconsole "unir_facturas_albaranes.py"
-   ```
-3. Se generará el archivo `dist\unir_facturas_albaranes.exe`. Copie‑pegué ese `.exe` en la carpeta que desee y ejecútelo con doble‑clic.
+**Salida:**  
+PDFs individuales en la carpeta destino.
 
 ---
 
-## 🧾 Uso paso a paso (usuario no técnico)
+## 2. procesar_albaranes.py
+**Objetivo:**  
+Renombrar los albaranes usando los datos del recuadro superior-izquierdo (Número, Fecha, Cliente).
 
-1. Doble‑clic para abrir el programa (o ejecute al script).  
-2. Aparecerá un mensaje explicativo. Luego se le pedirá que **seleccione tres carpetas**, en este orden:
-   - Carpeta donde están **las facturas a procesar**.  
-   - Carpeta base donde se encuentran **los albaranes** (puede contener subcarpetas).  
-   - Carpeta de **destino**, donde desea que se guarden los PDFs combinados.  
-3. El programa comenzará a procesar. Aparecerá al finalizar un mensaje “Proceso completado”.  
-4. Abra la carpeta de destino: verá archivos con nombres tipo:  
-   ```
-   2025‑10‑31 FE#1106 NOMBRE_CLIENTE.pdf
-   ```
-5. Abra también la carpeta `logs` y verá el archivo `procesa_facturas_log.txt`, donde podrá revisar los detalles:  
-   - Facturas procesadas.  
-   - Albaranes encontrados o faltantes.  
-   - Facturas sin albaranes o albaranes no usados.
+**Características:**
+- OCR preciso en coordenadas fijas.
+- Nombres estandarizados.
+- Limpieza automática de formatos.
 
 ---
 
-## 🧠 Buenas prácticas para uso administrativo
+## 3. unir_facturas_albaranes.py
+**Objetivo:**  
+Fusionar cada factura con todos sus albaranes relacionados.  
+Este módulo:
+- Localizará los albaranes pertenecientes a cada factura.
+- Integrará en un único PDF la factura + sus albaranes.
+- Usará la nomenclatura estándar establecida por los módulos anteriores.
 
-- Asegúrese de que las facturas en la carpeta “facturas a procesar” ya estén **renombradas** en formato `AAAA‑MM‑DD FE#nnnn` seguido del cliente, **si ya fuera necesario** (el script añadirá el nombre del cliente si lo encuentra).  
-- Verifique que la carpeta de albaranes incluya todos los archivos PDF de albaranes (por ejemplo, organizados por año o quincena). El script busca en subcarpetas automáticamente.  
-- Una vez generado el archivo combinado, archive la factura original y los albaranes correspondientes si lo desea — el programa no los borra ni mueve por usted.  
-- Revise el log al menos una vez al mes para detectar albaranes no encontrados o facturas sin albaranes — así podrá completar su archivo antes de enviarlo al archivo digital o firma.
-
----
-
-## ✨ ¿Qué pasa “detrás de cámaras”?
-
-1. El programa abre cada factura en PDF y extrae el **nombre del cliente**, mediante análisis de bloque de texto en la zona superior‑derecha del documento.  
-2. Luego extrae del texto de la factura los números de albarán que figuran (por ejemplo “A25 1345”).  
-3. Por cada número de albarán, busca en la carpeta de albaranes (y subcarpetas) el archivo PDF cuyo nombre contenga ese número.  
-4. Crea un PDF nuevo que incorpora **primero la factura** y luego, en el orden detectado, **los albaranes**.  
-5. Guarda ese PDF en la carpeta de destino y registra todo el proceso en el log.
+**Estado:**  
+Iniciado, pendiente de adaptación a la nueva lógica del separador de facturas.
 
 ---
 
-## 🧪 Limitaciones conocidas
+# Requisitos
 
-- Si el PDF de factura no está bien generado (por ejemplo, es un escaneo sin OCR), el reconocimiento del cliente o de los números de albarán puede fallar.  
-- Si el nombre del cliente no está en la zona esperada (superior‑derecha) o está dividido en más de una línea, puede no detectarse correctamente — revise entonces el archivo final y modifique manualmente si es necesario.  
-- Si varios albaranes tienen **exactamente el mismo número** o rutas idénticas, puede generarse un duplicado — revise el log para corregirlos.
+El proyecto requiere:
+
+```
+pymupdf>=1.24
+pillow>=10.0
+pytesseract>=0.3
+pypdf>=4.0
+```
+
+Tesseract debe estar instalado manualmente en Windows:
+
+Ruta recomendada:
+```
+C:\Program Files\Tesseract-OCR\tesseract.exe
+```
 
 ---
 
-## 📣 Colaboración y mejoras
+# Instalación
 
-Este proyecto lo desarrolla **Rafael Seaje** (contable y desarrollador de automatización).  
-Si desea proponer mejoras, activar OCR para facturas escaneadas o integrar en un sistema de firma digital, puede **crear un “Issue”** en este repositorio.
+1. Instalar Python 3.9+  
+2. Instalar dependencias:
+
+```
+pip install -r requirements.txt
+```
+
+3. Asegurar la instalación de Tesseract OCR.
 
 ---
 
-## 📜 Licencia
+# Compilación a .exe (si se desea)
 
-Este proyecto es para **uso personal o interno**. Está permitido modificarlo según sus necesidades, **pero no se publica como producto comercial sin permiso del autor**.
+Ejemplo para `separar_facturas.py`:
+
+```
+pyinstaller --onefile --noconsole ^
+  --add-data "logs;logs" ^
+  --name "SepararFacturas" src/separar_facturas.py
+```
+
+El ejecutable aparece en `dist/`.
 
 ---
 
-### ✅ En resumen
+# Uso general (resumen)
 
-Unir  Facturas  y  Albaranes es una herramienta creada para facilitar y automatizar el trabajo administrativo de combinar facturas y albaranes en formato PDF, con un proceso guiado, registros de actividad y buen nivel de autonomía para usuarios sin conocimientos profundos de programación.
+### Módulo 1 – Separar facturas
+1. Ejecutar el `.exe` o el `.py`  
+2. Elegir PDF origen  
+3. Elegir carpeta destino  
+4. Pulsar “INICIAR SEPARACIÓN”
+
+### Módulo 2 – Renombrar albaranes
+1. Ejecutar el módulo  
+2. Seleccionar carpeta con albaranes  
+3. Procesar
+
+### Módulo 3 – Unir facturas + albaranes (en desarrollo)
+
+---
+
+# Licencia
+Pendiente de definir.
